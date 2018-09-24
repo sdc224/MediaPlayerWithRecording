@@ -1,5 +1,6 @@
 ﻿using NAudio.Wave;
 using System;
+using System.IO;
 using System.Windows.Forms;
 
 namespace MediaPlayerWithRecording
@@ -12,26 +13,40 @@ namespace MediaPlayerWithRecording
         }
 
         // For Wave File input
-        private WaveFileReader _wave;
+        //private WaveFileReader _wave;
 
         // For Mp3 input
         private BlockAlignReductionStream _stream;
 
         private DirectSoundOut _output;
 
-        private void ButtonOpenWavFile_Click(object sender, EventArgs e)
+        private void ButtonOpenAudioFile_Click(object sender, EventArgs e)
         {
-            var open = new OpenFileDialog { Filter = "Wave File (*.wav)|*.wav" };
+            var open = new OpenFileDialog { Filter = "MP3 File (*.mp3;*.wav)|*.mp3;*.wav" };
             if (open.ShowDialog() != DialogResult.OK)
                 return;
-            DisposeWave();
 
-            // Input logic for WAV
-            _wave = new WaveFileReader(open.FileName);
+            DisposeAudio();
+
+            if (open.FileName.EndsWith(".mp3"))
+            {
+                // Input logic for mp3
+                var pcm = WaveFormatConversionStream.CreatePcmStream(new Mp3FileReader(open.FileName));
+                _stream = new BlockAlignReductionStream(pcm);
+            }
+
+            else if (open.FileName.EndsWith(".wav"))
+            {
+                var pcm = new WaveChannel32(new WaveFileReader(open.FileName));
+                _stream = new BlockAlignReductionStream(pcm);
+            }
+
+            else
+                throw new InvalidOperationException("Not a correct audio file type.");
 
             // Output logic
             _output = new DirectSoundOut();
-            _output.Init(new WaveChannel32(_wave));
+            _output.Init(_stream);
             _output.Play();
 
             ButtonPlayOrPause.Enabled = true;
@@ -58,42 +73,7 @@ namespace MediaPlayerWithRecording
             }
         }
 
-        private void ButtonOpenMp3File_Click(object sender, EventArgs e)
-        {
-            var open = new OpenFileDialog { Filter = "MP3 File (*.mp3)|*.mp3" };
-            if (open.ShowDialog() != DialogResult.OK)
-                return;
-            DisposeMp3();
-
-            // Input logic for mp3
-            var pcm = WaveFormatConversionStream.CreatePcmStream(new Mp3FileReader(open.FileName));
-            _stream = new BlockAlignReductionStream(pcm);
-
-            // Output logic
-            _output = new DirectSoundOut();
-            _output.Init(new WaveChannel32(_stream));
-            _output.Play();
-
-            ButtonPlayOrPauseMp3.Enabled = true;
-        }
-
-        private void DisposeWave()
-        {
-            if (_output == null) return;
-
-            if (_output.PlaybackState == PlaybackState.Playing)
-                _output.Stop();
-
-            _output.Dispose();
-            _output = null;
-
-            if (_wave == null) return;
-
-            _wave.Dispose();
-            _wave = null;
-        }
-
-        private void DisposeMp3()
+        private void DisposeAudio()
         {
             if (_output == null) return;
 
@@ -111,8 +91,29 @@ namespace MediaPlayerWithRecording
 
         private void FirstWindow_FormClosing(object sender, FormClosingEventArgs e)
         {
-            DisposeWave();
-            DisposeMp3();
+            //DisposeWave();
+            DisposeAudio();
+        }
+
+        private void ButtonConvertMp3ToWav_Click(object sender, EventArgs e)
+        {
+            var open = new OpenFileDialog { Filter = "MP3 File (*.mp3)|*.mp3" };
+            if (open.ShowDialog() != DialogResult.OK)
+                return;
+
+            var fileName = Path.GetFileNameWithoutExtension(open.SafeFileName);
+
+            var save = new SaveFileDialog { Filter = "WAV File (*.wav)|*.wav", FileName = fileName };
+            if (save.ShowDialog() != DialogResult.OK)
+                return;
+
+            using (var mp3 = new Mp3FileReader(open.FileName))
+            {
+                using (var pcm = WaveFormatConversionStream.CreatePcmStream(mp3))
+                {
+                    WaveFileWriter.CreateWaveFile(save.FileName, pcm);
+                }
+            }
         }
     }
 }
